@@ -3,6 +3,8 @@ import sys
 import numpy as np
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from scapy.all import rdpcap, IP, TCP, UDP
 from collections import defaultdict
 
@@ -63,7 +65,8 @@ class BeaconHunter:
                 results.append((stats['score'], flow, stats))
 
         sorted_results = sorted(results, key=lambda x: x[0], reverse=True)
-        
+        top_5 = sorted_results[:5]
+
         print("\n" + "="*85)
         print(f"{'FLOW':<45} | {'SCORE':<7} | {'JITTER':<8} | {'AVG INT'}")
         print("="*85)
@@ -72,17 +75,41 @@ class BeaconHunter:
             src, dst, port, proto = flow
             print(f"{src} -> {dst}:{port:<5} ({proto:<5}) | {score:<7} | {stats['jitter']:<8.3f} | {stats['avg']:.2f}s")
 
-        if sorted_results and sorted_results[0][0] >= 50:
-            self.visualize(sorted_results[0])
-            messagebox.showinfo("Успех", f"Анализ завершен!\nСамый подозрительный поток: {sorted_results[0][1][1]}\nГрафик сохранен в beacon_report.html")
+        if top_5:
+            self.visualize_top_n(top_5)
+            messagebox.showinfo("Успех", f"Анализ завершен!\nОтчет по {len(top_5)} самым подозрительным потокам сохранен в beacon_report.html")
         else:
             messagebox.showwarning("Результат", "Подозрительной Beacon-активности не обнаружено.")
 
-    def visualize(self, top_match):
-        score, flow, stats = top_match
-        df = pd.DataFrame({'Request': range(len(stats['intervals'])), 'Interval': stats['intervals']})
-        fig = px.line(df, x='Request', y='Interval', title=f"Beacon Detection: {flow[0]} -> {flow[1]} (Score: {score})", markers=True)
-        fig.add_hline(y=stats['avg'], line_dash="dash")
+    def visualize_top_n(self, top_results):
+        """Создает один HTML файл с несколькими графиками"""
+        n = len(top_results)
+        
+        fig = make_subplots(
+            rows=n, cols=1, 
+            subplot_titles=[f"TOP {i+1}: {res[1][0]} -> {res[1][1]} (Score: {res[0]})" for i, res in enumerate(top_results)],
+            vertical_spacing=0.05
+        )
+
+        for i, (score, flow, stats) in enumerate(top_results):
+            row = i + 1
+            fig.add_trace(
+                go.Scatter(
+                    x=list(range(len(stats['intervals']))), 
+                    y=stats['intervals'],
+                    mode='lines+markers',
+                    name=f"Flow {row}"
+                ),
+                row=row, col=1
+            )
+            fig.add_hline(y=stats['avg'], line_dash="dash", line_color="red", row=row, col=1)
+
+        fig.update_layout(
+            height=400 * n,
+            title_text="Beacon Hunter: Top 5 Suspicious Flows Analysis",
+            showlegend=False
+        )
+        
         fig.write_html("beacon_report.html")
 
 def select_file_and_run():
